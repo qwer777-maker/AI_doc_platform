@@ -1,3 +1,14 @@
+# Node.js 依赖项
+node_modules/
+npm-debug.log
+yarn-debug.log
+yarn-error.log
+.pnpm-debug.log
+
+# 前端构建输出
+/frontend/dist/
+/frontend/.cache/
+
 # Python
 __pycache__/
 *.py[cod]
@@ -19,31 +30,41 @@ var/
 *.egg-info/
 .installed.cfg
 *.egg
-
-# Virtual Environment
 venv/
+.venv/
 ENV/
 
-# IDE
+# 生成的文档
+generated_docs/
+
+# 环境变量文件（包含敏感信息）
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# 编辑器和 IDE 文件
 .idea/
 .vscode/
 *.swp
 *.swo
+*~
 
-# Node
-node_modules/
-npm-debug.log
-yarn-debug.log
-yarn-error.log
-
-# Vue
+# 操作系统文件
 .DS_Store
-dist/
-.env.local
-.env.*.local
+Thumbs.db
 
-# 敏感信息
-.env
+# 日志文件
+*.log
+logs/
+log/
 
-# 生成的文档
-generated_docs/ 
+# 测试覆盖率报告
+coverage/
+.coverage
+htmlcov/
+
+# 其他
+.pytest_cache/
+.mypy_cache/ 
