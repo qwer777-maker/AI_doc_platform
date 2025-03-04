@@ -2,6 +2,8 @@
 
 一个基于 AI 的文档生成系统，可以根据用户提供的主题自动生成 PPT 和 Word 文档。
 
+![项目首页](images/homepage.png)
+
 ## 功能特点
 
 - 根据主题自动生成文档大纲
@@ -9,6 +11,23 @@
 - 实时显示生成进度
 - 支持文档下载和预览
 - 使用 Server-Sent Events (SSE) 实现实时进度更新
+
+## 效果展示
+
+### 文档生成界面
+
+![文档生成界面](images/document_form.png)
+
+### 生成结果
+
+![生成结果](images/result.png)
+
+### 样本文档
+
+我们提供了一些由系统生成的样本文档，您可以查看以了解系统的能力：
+
+- [PPT 样本：人工智能简介](images/samples/AI_Introduction_presentation.pptx)
+- [Word 样本：区块链技术](images/samples/Blockchain_document.docx)
 
 ## 技术栈
 
@@ -57,6 +76,16 @@ SECRET_KEY=your-secret-key-for-jwt
 ```bash
 docker-compose up -d
 ```
+
+## 使用流程
+
+1. 在首页点击"创建新文档"按钮
+2. 填写文档主题（如"人工智能"、"区块链"等）
+3. 选择文档类型（PPT 或 Word）
+4. 可选：添加额外信息或选择模板
+5. 点击"生成文档"按钮
+6. 等待文档生成完成（您可以实时查看进度）
+7. 下载或预览生成的文档
 
 ## 贡献指南
 
