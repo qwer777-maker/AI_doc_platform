@@ -1,260 +1,94 @@
-# AI_doc_platform
-
-## 1. 项目根目录
-
+### AI Doc Platform
 ```
-document-ai-platform/
-├── frontend/            # 前端Vue项目
-├── backend/             # 后端服务集合
-├── docker/              # Docker相关配置
-├── scripts/             # 部署和工具脚本
-├── docs/                # 项目文档
-├── .github/             # GitHub Actions配置
+ai-doc-platform/
+├── backend/
+│   ├── app/
+│   │   ├── api/
+│   │   │   ├── __init__.py
+│   │   │   ├── routes.py          # API路由定义
+│   │   │   └── dependencies.py     # API依赖项
+│   │   ├── core/
+│   │   │   ├── __init__.py
+│   │   │   ├── config.py          # 配置管理(包含DeepSeek API配置)
+│   │   │   └── security.py        # 安全相关功能
+│   │   ├── models/
+│   │   │   ├── __init__.py
+│   │   │   └── schemas.py         # Pydantic模型
+│   │   ├── services/
+│   │   │   ├── __init__.py
+│   │   │   ├── deepseek_service.py # DeepSeek LLM服务
+│   │   │   ├── ppt_generator.py   # PPT生成服务
+│   │   │   └── word_generator.py  # Word文档生成服务
+│   │   ├── agents/
+│   │   │   ├── __init__.py
+│   │   │   ├── doc_agent.py       # 文档生成Agent
+│   │   │   └── tools/
+│   │   │       ├── __init__.py
+│   │   │       ├── research_tool.py    # 研究工具
+│   │   │       ├── ppt_tool.py         # PPT生成工具
+│   │   │       └── word_tool.py        # Word生成工具
+│   │   ├── utils/
+│   │   │   ├── __init__.py
+│   │   │   ├── helpers.py         # 辅助函数
+│   │   │   └── prompts.py         # 提示模板
+│   │   ├── templates/             # 文档模板文件
+│   │   │   ├── ppt_templates/
+│   │   │   └── word_templates/
+│   │   └── main.py                # 应用入口点
+│   ├── tests/
+│   │   ├── __init__.py
+│   │   ├── test_api.py
+│   │   └── test_services.py
+│   ├── .env.example               # 环境变量示例
+│   ├── requirements.txt           # Python依赖
+│   └── Dockerfile                 # 后端Docker构建文件
+│
+├── frontend/
+│   ├── public/
+│   │   ├── favicon.ico
+│   │   └── index.html
+│   ├── src/
+│   │   ├── assets/
+│   │   │   ├── logo.png
+│   │   │   ├── css/
+│   │   │   └── images/
+│   │   ├── components/
+│   │   │   ├── Header.vue
+│   │   │   ├── Footer.vue
+│   │   │   ├── DocumentForm.vue
+│   │   │   ├── ProgressIndicator.vue
+│   │   │   └── DocumentPreview.vue
+│   │   ├── views/
+│   │   │   ├── Home.vue
+│   │   │   ├── Generate.vue
+│   │   │   ├── Results.vue
+│   │   │   └── History.vue
+│   │   ├── services/
+│   │   │   ├── api.js             # API调用服务
+│   │   │   └── auth.js            # 认证服务
+│   │   ├── store/
+│   │   │   ├── index.js
+│   │   │   ├── modules/
+│   │   │   │   ├── documents.js
+│   │   │   │   └── user.js
+│   │   ├── router/
+│   │   │   └── index.js           # Vue路由配置
+│   │   ├── utils/
+│   │   │   └── helpers.js
+│   │   ├── App.vue
+│   │   └── main.js
+│   ├── .env.development
+│   ├── .env.production
+│   ├── package.json
+│   ├── babel.config.js
+│   ├── vue.config.js
+│   └── Dockerfile                 # 前端Docker构建文件
+│
+├── nginx/
+│   ├── nginx.conf                 # Nginx配置
+│   └── Dockerfile                 # Nginx Docker构建文件
+│
+├── docker-compose.yml             # Docker Compose配置
 ├── .gitignore
-├── README.md
-└── docker-compose.yml
+└── README.md                      # 项目说明
 ```
-
-## 2. 前端目录结构
-
-```
-frontend/
-├── public/                     # 静态资源，不经过webpack处理
-│   ├── favicon.ico
-│   └── index.html
-├── src/                        # 源代码
-│   ├── assets/                 # 静态资源
-│   │   ├── images/            # 图片资源
-│   │   ├── styles/            # 全局样式
-│   │   └── fonts/             # 字体资源
-│   ├── components/            # 组件
-│   │   ├── common/            # 通用组件
-│   │   │   ├── AppHeader.vue
-│   │   │   ├── AppFooter.vue
-│   │   │   ├── AppSidebar.vue
-│   │   │   └── ...
-│   │   ├── document/          # 文档相关组件
-│   │   │   ├── DocumentList.vue
-│   │   │   ├── DocumentUploader.vue
-│   │   │   ├── DocumentPreview.vue
-│   │   │   └── ...
-│   │   ├── ocr/               # OCR相关组件
-│   │   │   ├── OcrStatusCard.vue
-│   │   │   ├── TextEditor.vue
-│   │   │   └── ...
-│   │   └── generator/         # 文档生成组件
-│   │       ├── TemplateSelector.vue
-│   │       ├── PptGenerator.vue
-│   │       ├── WordGenerator.vue
-│   │       └── ...
-│   ├── views/                  # 页面
-│   │   ├── HomeView.vue
-│   │   ├── LoginView.vue
-│   │   ├── RegisterView.vue
-│   │   ├── DocumentsView.vue
-│   │   ├── DocumentDetailView.vue
-│   │   ├── GeneratorView.vue
-│   │   ├── ProfileView.vue
-│   │   └── ...
-│   ├── router/                 # 路由配置
-│   │   ├── index.js
-│   │   └── routes.js
-│   ├── stores/                 # Pinia状态管理
-│   │   ├── auth.js
-│   │   ├── documents.js
-│   │   ├── ocr.js
-│   │   ├── generator.js
-│   │   └── index.js
-│   ├── services/               # API服务
-│   │   ├── api.js             # API基础配置
-│   │   ├── auth.service.js
-│   │   ├── document.service.js
-│   │   ├── ocr.service.js
-│   │   ├── generator.service.js
-│   │   └── ...
-│   ├── utils/                  # 工具函数
-│   │   ├── validation.js
-│   │   ├── formatters.js
-│   │   ├── file-helpers.js
-│   │   └── ...
-│   ├── constants/              # 常量定义
-│   │   ├── api.js
-│   │   ├── status.js
-│   │   └── ...
-│   ├── App.vue                 # 根组件
-│   ├── main.js                 # 入口文件
-│   └── config.js               # 全局配置
-├── .env                        # 环境变量
-├── .env.development            # 开发环境变量
-├── .env.production             # 生产环境变量
-├── vite.config.js              # Vite配置
-├── package.json                # 依赖管理
-└── README.md
-```
-
-
-## 3. 后端目录结构
-
-```
-backend/
-├── gateway/                    # API网关服务
-│   ├── src/
-│   │   ├── config/            # 配置文件
-│   │   ├── middlewares/       # 中间件
-│   │   ├── routes/            # 路由转发
-│   │   ├── utils/             # 工具函数
-│   │   └── app.js             # 应用入口
-│   ├── Dockerfile
-│   └── package.json
-│
-├── auth-service/               # 用户认证服务
-│   ├── src/
-│   │   ├── config/
-│   │   ├── controllers/
-│   │   ├── models/
-│   │   ├── middlewares/
-│   │   ├── routes/
-│   │   ├── services/
-│   │   ├── utils/
-│   │   └── app.js
-│   ├── Dockerfile
-│   └── package.json
-│
-├── document-service/           # 文档管理服务
-│   ├── src/
-│   │   ├── config/
-│   │   ├── controllers/
-│   │   ├── models/
-│   │   ├── routes/
-│   │   ├── services/
-│   │   ├── utils/
-│   │   └── app.js
-│   ├── Dockerfile
-│   └── package.json
-│
-├── ocr-service/                # OCR处理服务
-│   ├── src/
-│   │   ├── config/
-│   │   ├── controllers/
-│   │   ├── models/
-│   │   ├── services/
-│   │   │   ├── pdf-extractor.js
-│   │   │   ├── ocr-processor.js
-│   │   │   └── ...
-│   │   ├── utils/
-│   │   └── app.js
-│   ├── Dockerfile
-│   └── package.json
-│
-├── content-service/            # 内容处理服务
-│   ├── src/
-│   │   ├── config/
-│   │   ├── controllers/
-│   │   ├── models/
-│   │   ├── services/
-│   │   │   ├── content-analyzer.js
-│   │   │   ├── text-processor.js
-│   │   │   └── ...
-│   │   ├── utils/
-│   │   └── app.js
-│   ├── Dockerfile
-│   └── package.json
-│
-├── generator-service/          # 文档生成服务
-│   ├── src/
-│   │   ├── config/
-│   │   ├── controllers/
-│   │   ├── models/
-│   │   ├── services/
-│   │   │   ├── ppt-generator.js
-│   │   │   ├── word-generator.js
-│   │   │   ├── template-manager.js
-│   │   │   └── ...
-│   │   ├── templates/         # 文档模板
-│   │   ├── utils/
-│   │   └── app.js
-│   ├── Dockerfile
-│   └── package.json
-│
-├── task-service/               # 任务管理服务
-│   ├── src/
-│   │   ├── config/
-│   │   ├── controllers/
-│   │   ├── models/
-│   │   ├── services/
-│   │   ├── utils/
-│   │   └── app.js
-│   ├── Dockerfile
-│   └── package.json
-│
-├── shared/                     # 共享库和工具
-│   ├── models/                # 共享数据模型
-│   ├── utils/                 # 共享工具函数
-│   ├── middlewares/           # 共享中间件
-│   └── constants/             # 共享常量
-│
-└── config/                     # 共享配置
-    ├── dev.js
-    ├── prod.js
-    └── test.js
-```
-
-
-## 4. Docker相关目录
-
-```
-docker/
-├── nginx/                     # Nginx配置
-│   ├── conf.d/
-│   └── nginx.conf
-├── mongodb/                   # MongoDB配置
-│   └── init-mongo.js
-├── postgres/                  # PostgreSQL配置 (如使用)
-│   └── init.sql
-├── redis/                     # Redis配置
-│   └── redis.conf
-├── minio/                     # MinIO配置 (文件存储)
-│   └── config.json
-└── docker-compose.dev.yml     # 开发环境docker-compose
-```
-
-
-## 5. 部署脚本目录
-
-```
-scripts/
-├── setup/                     # 初始化安装脚本
-│   ├── setup-dev.sh
-│   └── setup-prod.sh
-├── deploy/                    # 部署脚本
-│   ├── deploy-frontend.sh
-│   └── deploy-backend.sh
-├── ci/                        # CI/CD脚本
-│   ├── build.sh
-│   └── test.sh
-└── tools/                     # 工具脚本
-    ├── backup-db.sh
-    └── generate-api-docs.sh
-```
-
-
-## 6. 文档目录
-
-```
-docs/
-├── api/                       # API文档
-│   ├── auth.md
-│   ├── documents.md
-│   ├── ocr.md
-│   └── generator.md
-├── architecture/              # 架构文档
-│   ├── system-overview.md
-│   ├── data-model.md
-│   └── deployment.md
-├── guides/                    # 使用指南
-│   ├── development-setup.md
-│   ├── user-guide.md
-│   └── admin-guide.md
-└── images/                    # 文档图片
-```
-
