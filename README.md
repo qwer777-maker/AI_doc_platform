@@ -26,8 +26,8 @@
 
 我们提供了一些由系统生成的样本文档，您可以查看以了解系统的能力：
 
-- [PPT 样本：人工智能简介](images/samples/AI_Introduction_presentation.pptx)
-- [Word 样本：区块链技术](images/samples/Blockchain_document.docx)
+- [PPT 样本：什么是人工智能](images/什么是人工智能_presentation.pptx)
+- [Word 样本：什么是人工智能](images/什么是人工智能_document.docx)
 
 ## 技术栈
 
