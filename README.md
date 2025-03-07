@@ -26,8 +26,8 @@
 
 我们提供了一些由系统生成的样本文档，您可以查看以了解系统的能力：
 
-- [PPT 样本：什么是人工智能](images/什么是人工智能_presentation.pptx)
-- [Word 样本：什么是人工智能](images/什么是人工智能_document.docx)
+- [PPT 样本：强化学习](images/强化学习_presentation.pptx)
+- [Word 样本：强化学习](images/强化学习_document.docx)
 
 ## 技术栈
 
@@ -87,14 +87,11 @@ docker-compose up -d
 6. 等待文档生成完成（您可以实时查看进度）
 7. 下载或预览生成的文档
 
-## 贡献指南
 
-1. Fork 该仓库
-2. 创建您的特性分支 (`git checkout -b feature/amazing-feature`)
-3. 提交您的更改 (`git commit -m 'Add some amazing feature'`)
-4. 推送到分支 (`git push origin feature/amazing-feature`)
-5. 打开一个 Pull Request
+## 更新日志
+
+### 2025-03-07
+- 这周比较忙，继续更新项目，让AI能够生成更好的ppt内容，目前只使用了deepseek的api。
 
 ## 许可证
-
 [MIT](LICENSE)

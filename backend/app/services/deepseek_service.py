@@ -4,6 +4,7 @@ import requests
 from typing import List, Dict, Any, Optional
 import logging
 from ..core.config import settings
+from tenacity import retry, stop_after_attempt, wait_exponential
 
 # 配置日志
 logging.basicConfig(level=logging.INFO)
@@ -15,7 +16,11 @@ class DeepSeekService:
         self.api_endpoint = os.getenv("AI_API_ENDPOINT", "https://api.deepseek.com/v1/chat/completions")
         
         if not self.api_key:
-            logger.warning("DeepSeek API 密钥未设置，将使用模拟数据")
+            logger.error("DeepSeek API密钥未设置")
+            raise ValueError("DeepSeek API密钥未设置")
+        
+        logger.info(f"DeepSeek服务初始化完成，API端点: {self.api_endpoint}")
+        
         self.headers = {
             "Content-Type": "application/json",
             "Authorization": f"Bearer {self.api_key}"
@@ -69,34 +74,23 @@ class DeepSeekService:
         生成文档大纲
         """
         try:
-            logger.info(f"为主题 '{topic}' 生成 {doc_type} 文档大纲")
+            # 1. 首先生成主要章节
+            main_sections = self._generate_main_sections(topic, doc_type)
+            if not main_sections:
+                return None
             
-            # 如果没有 API 密钥，使用模拟数据
-            if not self.api_key:
-                return self._get_mock_outline(topic, doc_type)
-            
-            # 构建提示
-            prompt = self._build_outline_prompt(topic, doc_type)
-            
-            # 调用 API
-            response = self._call_api(prompt)
-            
-            if not response:
-                logger.error("API 调用失败")
-                return self._get_mock_outline(topic, doc_type)  # 失败时使用模拟数据
-            
-            # 解析响应
-            outline = self._parse_outline_response(response)
-            
-            if not outline:
-                logger.error("无法解析大纲响应")
-                return self._get_mock_outline(topic, doc_type)  # 解析失败时使用模拟数据
+            # 2. 然后为每个章节生成子章节
+            outline = []
+            for section in main_sections:
+                section_detail = self._generate_section_detail(topic, section, doc_type)
+                if section_detail:
+                    outline.append(section_detail)
             
             return outline
             
         except Exception as e:
             logger.error(f"生成大纲时出错: {str(e)}")
-            return self._get_mock_outline(topic, doc_type)  # 出错时使用模拟数据
+            return None
     
     def generate_section_content(self, topic: str, section_title: str, doc_type: str) -> str:
         """
@@ -130,6 +124,10 @@ class DeepSeekService:
             logger.error(f"生成章节内容时出错: {str(e)}")
             return self._get_mock_section_content(topic, section_title)
     
+    @retry(
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=4, max=10)
+    )
     def _call_api(self, prompt: str) -> Optional[Dict[str, Any]]:
         """
         调用 DeepSeek API
@@ -150,21 +148,31 @@ class DeepSeekService:
                 "max_tokens": 2000
             }
             
+            # 增加超时时间到120秒
             response = requests.post(
                 self.api_endpoint,
                 headers=headers,
                 json=data,
-                timeout=30
+                timeout=120  # 增加到120秒
             )
             
+            # 添加更详细的日志
+            logger.info(f"API响应状态码: {response.status_code}")
+            
             if response.status_code != 200:
-                logger.error(f"API 请求失败: {response.status_code} - {response.text}")
+                logger.error(f"API请求失败: {response.status_code} - {response.text}")
                 return None
             
             return response.json()
             
+        except requests.exceptions.Timeout:
+            logger.error("API请求超时，可能需要更长的处理时间")
+            return None
+        except requests.exceptions.RequestException as e:
+            logger.error(f"API请求异常: {str(e)}")
+            return None
         except Exception as e:
-            logger.error(f"API 调用出错: {str(e)}")
+            logger.error(f"API调用出错: {str(e)}")
             return None
     
     def _build_outline_prompt(self, topic: str, doc_type: str) -> str:
@@ -489,4 +497,401 @@ class DeepSeekService:
         最后，{section_title}正在不断发展。随着新技术和新方法的出现，我们可以预见它在未来将有更多创新和突破。
         
         总之，{section_title}是理解和应用{topic}的关键环节，值得我们深入研究和探索。
-        """ 
+        """
+
+    def _generate_main_sections(self, topic: str, doc_type: str) -> Optional[List[Dict[str, Any]]]:
+        """
+        生成文档的主要章节
+        """
+        try:
+            logger.info(f"为主题 '{topic}' 生成主要章节")
+            
+            # 构建提示
+            prompt = self._build_main_sections_prompt(topic, doc_type)
+            
+            # 调用 API
+            response = self._call_api(prompt)
+            
+            if not response:
+                logger.error("生成主要章节失败")
+                return None
+            
+            # 打印原始响应以便调试
+            logger.info(f"API原始响应: {response}")
+            
+            # 解析响应
+            try:
+                content = response.get("choices", [{}])[0].get("message", {}).get("content", "")
+                logger.info(f"解析前的内容: {content}")
+                
+                # 尝试清理和格式化内容
+                content = content.strip()
+                if not content.startswith("{"):
+                    # 如果返回的不是JSON格式，尝试提取JSON部分
+                    import re
+                    json_match = re.search(r'\{.*\}', content, re.DOTALL)
+                    if json_match:
+                        content = json_match.group()
+                    else:
+                        # 如果无法提取JSON，构造一个基本的章节结构
+                        sections = self._extract_sections_from_text(content)
+                        return sections
+                
+                sections = json.loads(content)
+                return sections.get("sections", [])
+            except (json.JSONDecodeError, KeyError, AttributeError) as e:
+                logger.error(f"解析主要章节响应失败: {str(e)}")
+                # 如果JSON解析失败，尝试从文本中提取章节
+                return self._extract_sections_from_text(content)
+            
+        except Exception as e:
+            logger.error(f"生成主要章节时出错: {str(e)}")
+            return None
+
+    def _extract_sections_from_text(self, text: str) -> List[Dict[str, str]]:
+        """
+        从文本中提取章节结构
+        """
+        try:
+            # 移除可能的代码块标记
+            text = text.replace("```json", "").replace("```", "")
+            
+            # 尝试找出章节标题
+            sections = []
+            lines = text.split('\n')
+            for line in lines:
+                line = line.strip()
+                # 跳过空行
+                if not line:
+                    continue
+                # 跳过常见的无关文本
+                if any(skip in line.lower() for skip in ['要求:', '格式:', 'json', '章节']):
+                    continue
+                # 提取可能的章节标题
+                if ':' in line:
+                    title = line.split(':')[1].strip()
+                else:
+                    title = line.strip('"').strip()
+                
+                if title and len(title) < 100:  # 避免提取过长的文本作为标题
+                    sections.append({"title": title})
+            
+            # 如果没有找到任何章节，创建默认章节
+            if not sections:
+                sections = [
+                    {"title": "引言"},
+                    {"title": "主要内容"},
+                    {"title": "结论"}
+                ]
+            
+            return sections
+        except Exception as e:
+            logger.error(f"从文本提取章节失败: {str(e)}")
+            # 返回默认章节结构
+            return [
+                {"title": "引言"},
+                {"title": "主要内容"},
+                {"title": "结论"}
+            ]
+
+    def _build_main_sections_prompt(self, topic: str, doc_type: str) -> str:
+        """
+        构建生成主要章节的提示
+        """
+        if doc_type == "ppt":
+            return f"""
+            请为主题"{topic}"创建PPT演示文稿的主要章节结构。
+            
+            要求:
+            1. 创建5-7个主要章节
+            2. 每个章节应该简洁明了
+            3. 章节之间应该有逻辑连贯性
+            4. 严格按照以下JSON格式返回，不要添加其他说明文字：
+            
+            {{
+                "sections": [
+                    {{
+                        "title": "引言"
+                    }},
+                    {{
+                        "title": "第二章节标题"
+                    }},
+                    ...
+                ]
+            }}
+            """
+        else:
+            return f"""
+            请为主题"{topic}"创建Word文档的主要章节结构。
+            
+            要求:
+            1. 创建5-7个主要章节
+            2. 包含引言和结论章节
+            3. 章节之间应该有逻辑连贯性
+            4. 严格按照以下JSON格式返回，不要添加其他说明文字：
+            
+            {{
+                "sections": [
+                    {{
+                        "title": "引言"
+                    }},
+                    {{
+                        "title": "第二章节标题"
+                    }},
+                    ...
+                ]
+            }}
+            """
+
+    def _generate_section_detail(self, topic: str, section: Dict[str, Any], doc_type: str) -> Optional[Dict[str, Any]]:
+        """
+        为每个主要章节生成详细内容
+        """
+        try:
+            section_title = section.get("title", "")
+            logger.info(f"为章节 '{section_title}' 生成详细内容")
+            
+            # 构建提示
+            prompt = self._build_section_detail_prompt(topic, section_title, doc_type)
+            
+            # 调用 API
+            response = self._call_api(prompt)
+            
+            if not response:
+                logger.error(f"生成章节 '{section_title}' 的详细内容失败")
+                return None
+            
+            # 打印原始响应以便调试
+            logger.info(f"章节详细内容API响应: {response}")
+            
+            # 解析响应
+            try:
+                content = response.get("choices", [{}])[0].get("message", {}).get("content", "")
+                logger.info(f"章节详细内容解析前的内容: {content}")
+                
+                # 尝试清理和格式化内容
+                content = content.strip()
+                if not content.startswith("{"):
+                    # 如果返回的不是JSON格式，尝试提取JSON部分
+                    import re
+                    json_match = re.search(r'\{.*\}', content, re.DOTALL)
+                    if json_match:
+                        content = json_match.group()
+                    else:
+                        # 如果无法提取JSON，构造一个基本的子章节结构
+                        subsections = self._extract_subsections_from_text(content, section_title)
+                        return {
+                            "title": section_title,
+                            "slides" if doc_type == "ppt" else "subsections": subsections
+                        }
+                
+                detail = json.loads(content)
+                return {
+                    "title": section_title,
+                    "slides" if doc_type == "ppt" else "subsections": detail.get("content", [])
+                }
+            except (json.JSONDecodeError, KeyError, AttributeError) as e:
+                logger.error(f"解析章节详细内容失败: {str(e)}")
+                # 如果JSON解析失败，尝试从文本中提取子章节
+                subsections = self._extract_subsections_from_text(content, section_title)
+                return {
+                    "title": section_title,
+                    "slides" if doc_type == "ppt" else "subsections": subsections
+                }
+            
+        except Exception as e:
+            logger.error(f"生成章节详细内容时出错: {str(e)}")
+            return None
+
+    def _extract_subsections_from_text(self, text: str, section_title: str) -> List[Dict[str, Any]]:
+        """
+        从文本中提取子章节结构，增加对PPT内容的支持
+        """
+        try:
+            # 移除可能的代码块标记
+            text = text.replace("```json", "").replace("```", "")
+            
+            # 尝试找出幻灯片内容
+            subsections = []
+            current_slide = None
+            lines = text.split('\n')
+            
+            for line in lines:
+                line = line.strip()
+                if not line:
+                    continue
+                
+                # 跳过常见的无关文本
+                if any(skip in line.lower() for skip in ['要求:', '格式:', 'json', '内容:']):
+                    continue
+                
+                # 检测新的幻灯片标题
+                if line.endswith('：') or line.endswith(':') or line.startswith('#'):
+                    if current_slide:
+                        subsections.append(current_slide)
+                    current_slide = {
+                        "title": line.rstrip('：:').lstrip('#').strip(),
+                        "type": "content",
+                        "points": [],
+                        "notes": ""
+                    }
+                # 收集要点
+                elif current_slide and (line.startswith('-') or line.startswith('•')):
+                    point = line.lstrip('-•').strip()
+                    if len(point) > 40:  # 限制要点字数
+                        point = point[:37] + '...'
+                    current_slide["points"].append(point)
+                    
+                    # 限制每页幻灯片的要点数量
+                    if len(current_slide["points"]) > 5:
+                        current_slide["points"] = current_slide["points"][:5]
+                
+                # 收集补充说明
+                elif current_slide and line.startswith('注：'):
+                    notes = line.lstrip('注：').strip()
+                    if len(notes) > 100:  # 限制注释字数
+                        notes = notes[:97] + '...'
+                    current_slide["notes"] = notes
+            
+            # 添加最后一个幻灯片
+            if current_slide:
+                subsections.append(current_slide)
+            
+            # 如果没有找到任何内容，创建默认内容
+            if not subsections:
+                subsections = [
+                    {
+                        "title": f"{section_title[:15]}概述",
+                        "type": "content",
+                        "points": [
+                            f"介绍{section_title[:15]}的定义和范围",
+                            f"分析{section_title[:15]}的重要性",
+                            f"探讨主要应用场景"
+                        ],
+                        "notes": f"本节重点讲解{section_title[:15]}的核心内容，帮助听众理解基本概念和重要性。"
+                    },
+                    {
+                        "title": "核心要点",
+                        "type": "content",
+                        "points": [
+                            "关键要点1（具体相关内容）",
+                            "关键要点2（具体相关内容）",
+                            "关键要点3（具体相关内容）"
+                        ],
+                        "notes": "详细展开各个要点，突出重要性和应用价值。"
+                    },
+                    {
+                        "title": "总结与展望",
+                        "type": "content",
+                        "points": [
+                            "回顾核心观点",
+                            "强调实践意义",
+                            "展望未来方向"
+                        ],
+                        "notes": "总结本节重点，强调实践价值，为下一节内容做铺垫。"
+                    }
+                ]
+            
+            return subsections
+        except Exception as e:
+            logger.error(f"从文本提取子章节失败: {str(e)}")
+            # 返回默认结构
+            return [
+                {
+                    "title": f"{section_title[:15]}概述",
+                    "type": "content",
+                    "points": [
+                        f"介绍{section_title[:15]}的定义和范围",
+                        f"分析{section_title[:15]}的重要性",
+                        f"探讨主要应用场景"
+                    ],
+                    "notes": f"本节重点讲解{section_title[:15]}的核心内容，帮助听众理解基本概念和重要性。"
+                }
+            ]
+
+    def _build_section_detail_prompt(self, topic: str, section_title: str, doc_type: str) -> str:
+        """
+        构建生成章节详细内容的提示
+        """
+        if doc_type == "ppt":
+            return f"""
+            请为主题"{topic}"的章节"{section_title}"创建详细的PPT幻灯片内容。
+
+            要求:
+            1. 创建3-4个幻灯片，可以使用以下布局类型：
+               - normal: 普通内容布局
+               - image_content: 带图片的布局
+               - two_column: 双栏布局
+            2. 内容限制：
+               - 标题：20字以内
+               - 主要要点：40字以内
+               - 每个要点的详细说明：2-3个子要点，每个20-30字
+               - 每页3-5个主要要点
+               - 注释：100字以内
+            3. 双栏布局时，左右两栏内容要相互呼应
+            4. 严格按照以下JSON格式返回：
+
+            {{
+                "content": [
+                    {{
+                        "title": "幻灯片标题",
+                        "type": "normal",
+                        "points": [
+                            {{
+                                "main": "主要要点1",
+                                "details": [
+                                    "要点1的详细说明1",
+                                    "要点1的详细说明2"
+                                ]
+                            }},
+                            {{
+                                "main": "主要要点2",
+                                "details": [
+                                    "要点2的详细说明1",
+                                    "要点2的详细说明2"
+                                ]
+                            }}
+                        ],
+                        "notes": "演讲注释"
+                    }},
+                    {{
+                        "title": "对比分析",
+                        "type": "two_column",
+                        "left_points": [
+                            {{
+                                "main": "左栏要点1",
+                                "details": ["详细说明1", "详细说明2"]
+                            }}
+                        ],
+                        "right_points": [
+                            {{
+                                "main": "右栏要点1",
+                                "details": ["详细说明1", "详细说明2"]
+                            }}
+                        ],
+                        "notes": "演讲注释"
+                    }}
+                ]
+            }}
+            """
+        else:
+            return f"""
+            请为主题"{topic}"的章节"{section_title}"创建详细的子章节结构。
+            
+            要求:
+            1. 创建2-4个子章节
+            2. 每个子章节应该有明确的主题
+            3. 内容应该详实专业
+            4. 严格按照以下JSON格式返回，不要添加其他说明文字：
+            
+            {{
+                "content": [
+                    {{
+                        "title": "第一个子章节标题"
+                    }},
+                    {{
+                        "title": "第二个子章节标题"
+                    }}
+                ]
+            }}
+            """ 

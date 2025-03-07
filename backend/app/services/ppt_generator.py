@@ -4,7 +4,9 @@ from pptx import Presentation
 from pptx.util import Inches, Pt
 from pptx.dml.color import RGBColor
 from pptx.enum.text import PP_ALIGN
-from ..core.config import settings
+from pptx.slide import Slide
+from pptx.text.text import TextFrame
+from pptx.enum.shapes import MSO_SHAPE
 import logging
 
 # 配置日志
@@ -13,74 +15,154 @@ logger = logging.getLogger(__name__)
 
 class PPTGenerator:
     def __init__(self):
-        self.templates_dir = os.path.join(os.path.dirname(__file__), "../templates/ppt_templates")
-        self.output_dir = "generated_docs"  # 输出目录
-        
-        # 确保输出目录存在
+        self.output_dir = "generated_docs"
         os.makedirs(self.output_dir, exist_ok=True)
-    
+        
+        # 定义配色方案
+        self.COLORS = {
+            'primary': RGBColor(41, 128, 185),    # 主色调：蓝色
+            'secondary': RGBColor(44, 62, 80),    # 次要色：深灰
+            'accent': RGBColor(231, 76, 60),      # 强调色：红色
+            'light': RGBColor(236, 240, 241),     # 浅色：近白
+            'dark': RGBColor(52, 73, 94)          # 深色：深灰蓝
+        }
+        
+        self.prs = None
+
     def generate(self, topic: str, outline: List[Dict[str, Any]], template_id: Optional[str] = None) -> Optional[str]:
         """
-        根据大纲生成PPT文档
+        生成PPT文档
         
         Args:
-            topic: 文档主题
-            outline: 文档大纲
-            template_id: 可选的模板ID
-            
-        Returns:
-            生成的PPT文件路径，如果失败则返回None
+            topic: 主题
+            outline: 大纲内容
+            template_id: 模板ID（现在不使用，保留参数以保持接口兼容）
         """
         try:
             logger.info(f"开始生成PPT: {topic}")
             
-            # 创建演示文稿
-            prs = self._create_presentation(template_id)
+            # 创建新的演示文稿
+            self.prs = Presentation()
+            self.prs.slide_width = Inches(16)
+            self.prs.slide_height = Inches(9)
             
             # 添加标题幻灯片
-            self._add_title_slide(prs, topic)
+            self._add_title_slide(topic)
             
             # 添加目录幻灯片
-            self._add_toc_slide(prs, outline)
+            self._add_toc_slide(outline)
             
-            # 添加内容幻灯片
+            # 处理每个章节
             for section in outline:
-                self._add_section_slides(prs, section, topic)
+                # 添加章节标题幻灯片
+                self._add_section_title_slide(section["title"])
+                
+                # 添加章节内容幻灯片
+                slides = section.get("slides", [])
+                for slide_content in slides:
+                    self._add_content_slide(slide_content)
             
             # 添加结束幻灯片
-            self._add_ending_slide(prs, topic)
+            self._add_ending_slide(topic)
             
             # 保存文件
-            file_name = f"{topic.replace(' ', '_')}_presentation.pptx"
-            file_path = os.path.join(self.output_dir, file_name)
-            prs.save(file_path)
+            output_path = os.path.join(self.output_dir, f"{topic}_presentation.pptx")
+            self.prs.save(output_path)
             
-            logger.info(f"PPT生成成功: {file_path}")
-            return file_path
+            logger.info(f"PPT生成完成，保存至: {output_path}")
+            return output_path
             
         except Exception as e:
             logger.error(f"生成PPT时出错: {str(e)}")
             return None
-    
-    def _create_presentation(self, template_id: Optional[str]) -> Presentation:
-        """
-        创建演示文稿对象，可选择使用模板
-        """
-        # 如果提供了模板ID，尝试加载模板
-        if template_id and template_id != "default":
-            template_path = f"templates/ppt/{template_id}.pptx"
-            if os.path.exists(template_path):
-                return Presentation(template_path)
+        finally:
+            self.prs = None
+
+    def _add_points(self, text_frame: TextFrame, points: List[Dict[str, Any]]) -> None:
+        """添加要点和详细说明"""
+        for point in points:
+            # 添加主要要点
+            p = text_frame.add_paragraph()
+            p.text = "▪ " + point.get("main", "")  # 添加项目符号
+            p.level = 0
+            p.font.name = '微软雅黑'
+            p.font.size = Pt(28)
+            p.font.bold = True
+            p.font.color.rgb = self.COLORS['primary']
+            p.space_after = Pt(12)  # 增加段落间距
+            
+            # 添加详细说明
+            for detail in point.get("details", []):
+                p = text_frame.add_paragraph()
+                p.text = "• " + detail
+                p.level = 1
+                p.font.name = '微软雅黑'
+                p.font.size = Pt(20)
+                p.font.color.rgb = self.COLORS['secondary']
+                p.space_before = Pt(6)  # 增加段落前间距
+                p.space_after = Pt(6)   # 增加段落后间距
+
+    def _add_content_slide(self, content: Dict[str, Any]) -> None:
+        """添加内容幻灯片"""
+        slide = self.prs.slides.add_slide(self.prs.slide_layouts[6])
         
-        # 默认创建空白演示文稿
-        return Presentation()
-    
-    def _add_title_slide(self, prs: Presentation, topic: str) -> None:
-        """
-        添加标题幻灯片
-        """
-        slide_layout = prs.slide_layouts[0]  # 使用标题布局
-        slide = prs.slides.add_slide(slide_layout)
+        # 添加标题和装饰线条
+        title = slide.shapes.add_textbox(
+            Inches(1), Inches(0.5), Inches(14), Inches(1)
+        )
+        title.text_frame.text = content.get("title", "")
+        p = title.text_frame.paragraphs[0]
+        p.font.name = '微软雅黑'
+        p.font.size = Pt(36)
+        p.font.bold = True
+        p.font.color.rgb = self.COLORS['dark']
+        p.alignment = PP_ALIGN.LEFT
+        
+        # 添加装饰线条（使用矩形作为线条）
+        line = slide.shapes.add_shape(
+            MSO_SHAPE.RECTANGLE,  # 修改这里
+            Inches(1), Inches(1.3), Inches(14), Inches(0.03)
+        )
+        line.fill.solid()
+        line.fill.fore_color.rgb = self.COLORS['primary']
+        
+        content_type = content.get("type", "normal")
+        
+        if content_type == "two_column":
+            # 创建左右两栏，调整位置和大小
+            left_content = slide.shapes.add_textbox(
+                Inches(1), Inches(1.5), Inches(6.5), Inches(6)
+            )
+            right_content = slide.shapes.add_textbox(
+                Inches(8), Inches(1.5), Inches(6.5), Inches(6)
+            )
+            self._add_points(left_content.text_frame, content.get("left_points", []))
+            self._add_points(right_content.text_frame, content.get("right_points", []))
+            
+        else:  # normal 或 image_content
+            # 调整文本区域的位置和大小
+            text_content = slide.shapes.add_textbox(
+                Inches(1), Inches(1.5), 
+                Inches(14 if content_type == "normal" else 8), 
+                Inches(6.5)  # 增加高度
+            )
+            self._add_points(text_content.text_frame, content.get("points", []))
+            
+            if content_type == "image_content" and (image_path := content.get("image_path")):
+                slide.shapes.add_picture(
+                    image_path,
+                    Inches(9.5), Inches(1.5),
+                    width=Inches(5.5)
+                )
+        
+        # 添加注释
+        if notes := content.get("notes"):
+            slide.notes_slide.notes_text_frame.text = notes
+
+    def _add_title_slide(self, topic: str) -> None:
+        """添加标题幻灯片"""
+        slide_layout = self.prs.slide_layouts[0]  # 使用标题布局
+        slide = self.prs.slides.add_slide(slide_layout)
         
         title = slide.shapes.title
         subtitle = slide.placeholders[1]
@@ -94,7 +176,7 @@ class PPTGenerator:
             for run in paragraph.runs:
                 run.font.size = Pt(44)
                 run.font.bold = True
-                run.font.color.rgb = RGBColor(44, 62, 80)
+                run.font.color.rgb = self.COLORS['primary']
         
         # 设置副标题样式
         for paragraph in subtitle.text_frame.paragraphs:
@@ -102,44 +184,69 @@ class PPTGenerator:
             for run in paragraph.runs:
                 run.font.size = Pt(24)
                 run.font.italic = True
-                run.font.color.rgb = RGBColor(52, 73, 94)
-    
-    def _add_toc_slide(self, prs: Presentation, outline: List[Dict[str, Any]]) -> None:
-        """
-        添加目录幻灯片
-        """
-        slide_layout = prs.slide_layouts[1]  # 使用标题和内容布局
-        slide = prs.slides.add_slide(slide_layout)
+                run.font.color.rgb = self.COLORS['secondary']
+
+    def _add_toc_slide(self, outline: List[Dict[str, Any]]) -> None:
+        """添加目录幻灯片"""
+        slide = self.prs.slides.add_slide(self.prs.slide_layouts[6])  # 使用空白布局
         
-        title = slide.shapes.title
-        content = slide.placeholders[1]
+        # 添加标题
+        title = slide.shapes.add_textbox(
+            Inches(1), Inches(0.5), Inches(14), Inches(1)
+        )
+        title.text_frame.text = "目录"
+        title_p = title.text_frame.paragraphs[0]
+        title_p.alignment = PP_ALIGN.CENTER
+        title_p.font.size = Pt(40)
+        title_p.font.bold = True
+        title_p.font.color.rgb = self.COLORS['primary']
         
-        title.text = "目录"
+        # 添加装饰线条
+        line = slide.shapes.add_shape(
+            MSO_SHAPE.RECTANGLE,  # 修改这里
+            Inches(2), Inches(1.8), Inches(12), Inches(0.05)
+        )
+        line.fill.solid()
+        line.fill.fore_color.rgb = self.COLORS['primary']
         
-        # 添加目录内容
-        tf = content.text_frame
-        for i, section in enumerate(outline, 1):
-            p = tf.add_paragraph()
+        # 创建两列布局
+        left_content = slide.shapes.add_textbox(
+            Inches(2), Inches(2.2), Inches(5.5), Inches(5)
+        )
+        right_content = slide.shapes.add_textbox(
+            Inches(8.5), Inches(2.2), Inches(5.5), Inches(5)
+        )
+        
+        # 分配目录项到两列
+        mid_point = len(outline) // 2 + len(outline) % 2
+        
+        # 添加左列目录项
+        tf_left = left_content.text_frame
+        for i, section in enumerate(outline[:mid_point], 1):
+            p = tf_left.add_paragraph()
             p.text = f"{i}. {section['title']}"
-            p.level = 0
-            
-            # 设置段落样式
-            p.alignment = PP_ALIGN.LEFT
-            for run in p.runs:
-                run.font.size = Pt(24)
-                run.font.bold = True
-                run.font.color.rgb = RGBColor(41, 128, 185)
-    
-    def _add_section_slides(self, prs: Presentation, section: Dict[str, Any], topic: str) -> None:
-        """
-        添加章节幻灯片
-        """
-        # 添加章节标题幻灯片
-        slide_layout = prs.slide_layouts[2]  # 使用章节标题布局
-        slide = prs.slides.add_slide(slide_layout)
+            p.font.size = Pt(24)
+            p.font.bold = True
+            p.font.color.rgb = self.COLORS['secondary']
+            p.space_after = Pt(20)  # 增加段落间距
+        
+        # 添加右列目录项
+        tf_right = right_content.text_frame
+        for i, section in enumerate(outline[mid_point:], mid_point + 1):
+            p = tf_right.add_paragraph()
+            p.text = f"{i}. {section['title']}"
+            p.font.size = Pt(24)
+            p.font.bold = True
+            p.font.color.rgb = self.COLORS['secondary']
+            p.space_after = Pt(20)  # 增加段落间距
+
+    def _add_section_title_slide(self, section_title: str) -> None:
+        """添加章节标题幻灯片"""
+        slide_layout = self.prs.slide_layouts[2]  # 使用章节标题布局
+        slide = self.prs.slides.add_slide(slide_layout)
         
         title = slide.shapes.title
-        title.text = section["title"]
+        title.text = section_title
         
         # 设置标题样式
         for paragraph in title.text_frame.paragraphs:
@@ -147,108 +254,12 @@ class PPTGenerator:
             for run in paragraph.runs:
                 run.font.size = Pt(40)
                 run.font.bold = True
-                run.font.color.rgb = RGBColor(41, 128, 185)
-        
-        # 添加章节内容幻灯片
-        slides = section.get("slides", [])
-        if not slides:
-            # 如果没有指定幻灯片，创建一个默认幻灯片
-            self._add_default_content_slide(prs, section["title"], topic)
-            return
-        
-        for slide_info in slides:
-            self._add_content_slide(prs, slide_info, section["title"], topic)
-    
-    def _add_content_slide(self, prs: Presentation, slide_info: Dict[str, Any], section_title: str, topic: str) -> None:
-        """
-        添加内容幻灯片
-        """
-        slide_layout = prs.slide_layouts[1]  # 使用标题和内容布局
-        slide = prs.slides.add_slide(slide_layout)
-        
-        title = slide.shapes.title
-        content = slide.placeholders[1]
-        
-        title.text = slide_info["title"]
-        
-        # 设置标题样式
-        for paragraph in title.text_frame.paragraphs:
-            paragraph.alignment = PP_ALIGN.LEFT
-            for run in paragraph.runs:
-                run.font.size = Pt(32)
-                run.font.bold = True
-                run.font.color.rgb = RGBColor(52, 73, 94)
-        
-        # 添加模拟内容
-        tf = content.text_frame
-        
-        # 这里可以调用AI服务生成实际内容
-        # 现在使用模拟内容
-        bullet_points = [
-            f"{slide_info['title']}是{topic}的重要组成部分",
-            f"它包含多个关键要素和特性",
-            f"理解{slide_info['title']}对掌握{section_title}至关重要",
-            f"未来发展趋势将进一步强化其重要性"
-        ]
-        
-        for point in bullet_points:
-            p = tf.add_paragraph()
-            p.text = point
-            p.level = 0
-            
-            # 设置段落样式
-            p.alignment = PP_ALIGN.LEFT
-            for run in p.runs:
-                run.font.size = Pt(24)
-                run.font.color.rgb = RGBColor(44, 62, 80)
-    
-    def _add_default_content_slide(self, prs: Presentation, section_title: str, topic: str) -> None:
-        """
-        添加默认内容幻灯片
-        """
-        slide_layout = prs.slide_layouts[1]  # 使用标题和内容布局
-        slide = prs.slides.add_slide(slide_layout)
-        
-        title = slide.shapes.title
-        content = slide.placeholders[1]
-        
-        title.text = f"{section_title} - 关键要点"
-        
-        # 设置标题样式
-        for paragraph in title.text_frame.paragraphs:
-            paragraph.alignment = PP_ALIGN.LEFT
-            for run in paragraph.runs:
-                run.font.size = Pt(32)
-                run.font.bold = True
-                run.font.color.rgb = RGBColor(52, 73, 94)
-        
-        # 添加模拟内容
-        tf = content.text_frame
-        
-        bullet_points = [
-            f"{section_title}是{topic}的核心组成部分",
-            f"它包含多个关键要素和特性",
-            f"深入理解{section_title}对掌握整个主题至关重要",
-            f"未来研究将进一步探索其潜力和应用"
-        ]
-        
-        for point in bullet_points:
-            p = tf.add_paragraph()
-            p.text = point
-            p.level = 0
-            
-            # 设置段落样式
-            p.alignment = PP_ALIGN.LEFT
-            for run in p.runs:
-                run.font.size = Pt(24)
-                run.font.color.rgb = RGBColor(44, 62, 80)
-    
-    def _add_ending_slide(self, prs: Presentation, topic: str) -> None:
-        """
-        添加结束幻灯片
-        """
-        slide_layout = prs.slide_layouts[1]  # 使用标题和内容布局
-        slide = prs.slides.add_slide(slide_layout)
+                run.font.color.rgb = self.COLORS['primary']
+
+    def _add_ending_slide(self, topic: str) -> None:
+        """添加结束幻灯片"""
+        slide_layout = self.prs.slide_layouts[1]  # 使用标题和内容布局
+        slide = self.prs.slides.add_slide(slide_layout)
         
         title = slide.shapes.title
         content = slide.placeholders[1]
@@ -261,7 +272,7 @@ class PPTGenerator:
             for run in paragraph.runs:
                 run.font.size = Pt(40)
                 run.font.bold = True
-                run.font.color.rgb = RGBColor(41, 128, 185)
+                run.font.color.rgb = self.COLORS['primary']
         
         # 添加总结内容
         tf = content.text_frame
@@ -282,4 +293,4 @@ class PPTGenerator:
             p.alignment = PP_ALIGN.CENTER
             for run in p.runs:
                 run.font.size = Pt(28)
-                run.font.color.rgb = RGBColor(44, 62, 80) 
+                run.font.color.rgb = self.COLORS['secondary'] 
