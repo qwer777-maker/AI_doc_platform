@@ -2,6 +2,8 @@
 
 一个基于 AI 的文档生成系统，可以根据用户提供的主题自动生成 PPT 和 Word 文档。
 
+目前是初始版本，正在开发中。。。。
+
 ![项目首页](images/homepage.png)
 
 ## 功能特点
@@ -68,7 +70,6 @@ uvicorn app.main:app --reload --port 8001
 ```
 AI_API_KEY=your_deepseek_api_key
 AI_API_ENDPOINT=https://api.deepseek.com/v1/chat/completions
-SECRET_KEY=your-secret-key-for-jwt
 ```
 
 ## 使用 Docker
