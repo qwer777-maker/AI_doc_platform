@@ -9,14 +9,25 @@ from pptx.text.text import TextFrame
 from pptx.enum.shapes import MSO_SHAPE
 import logging
 
+from .ai_service_factory import AIServiceFactory
+
 # 配置日志
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 class PPTGenerator:
-    def __init__(self):
-        self.output_dir = "generated_docs"
+    def __init__(self, ai_service_type: str = "deepseek"):
+        self.templates_dir = os.path.join(os.path.dirname(__file__), "../templates/ppt_templates")
+        # 使用绝对路径
+        self.output_dir = os.path.abspath("generated_docs")
+        logger.info(f"PPT生成器输出目录: {self.output_dir}")
         os.makedirs(self.output_dir, exist_ok=True)
+        
+        # 确保目录权限正确
+        try:
+            os.chmod(self.output_dir, 0o777)
+        except Exception as e:
+            logger.warning(f"无法修改目录权限: {e}")
         
         # 定义配色方案
         self.COLORS = {
@@ -28,6 +39,7 @@ class PPTGenerator:
         }
         
         self.prs = None
+        self.ai_service = AIServiceFactory.create_service(ai_service_type)
 
     def generate(self, topic: str, outline: List[Dict[str, Any]], template_id: Optional[str] = None) -> Optional[str]:
         """
@@ -39,37 +51,55 @@ class PPTGenerator:
             template_id: 模板ID（现在不使用，保留参数以保持接口兼容）
         """
         try:
-            logger.info(f"开始生成PPT: {topic}")
+            logger.info(f"开始生成PPT: 主题='{topic}', 章节数={len(outline)}")
+            if template_id:
+                logger.info(f"使用模板: {template_id}")
             
             # 创建新的演示文稿
             self.prs = Presentation()
             self.prs.slide_width = Inches(16)
             self.prs.slide_height = Inches(9)
+            logger.info(f"创建新的演示文稿: 宽度={self.prs.slide_width}, 高度={self.prs.slide_height}")
             
             # 添加标题幻灯片
+            logger.info("添加标题幻灯片")
             self._add_title_slide(topic)
             
             # 添加目录幻灯片
+            logger.info("添加目录幻灯片")
             self._add_toc_slide(outline)
             
             # 处理每个章节
-            for section in outline:
+            total_slides = 2  # 已添加标题和目录幻灯片
+            for section_index, section in enumerate(outline):
+                section_title = section["title"]
+                logger.info(f"处理章节 {section_index+1}/{len(outline)}: '{section_title}'")
+                
                 # 添加章节标题幻灯片
-                self._add_section_title_slide(section["title"])
+                self._add_section_title_slide(section_title)
+                total_slides += 1
                 
                 # 添加章节内容幻灯片
                 slides = section.get("slides", [])
-                for slide_content in slides:
-                    self._add_content_slide(slide_content)
+                logger.info(f"  章节 '{section_title}' 包含 {len(slides)} 张幻灯片")
+                
+                for slide_index, slide_content in enumerate(slides):
+                    slide_title = slide_content.get("title", "未知标题")
+                    slide_type = slide_content.get("type", "content")
+                    logger.info(f"  添加幻灯片 {slide_index+1}/{len(slides)}: '{slide_title}' (类型: {slide_type})")
+                    self._add_content_slide(slide_content, topic, section_title)
+                    total_slides += 1
             
             # 添加结束幻灯片
+            logger.info("添加结束幻灯片")
             self._add_ending_slide(topic)
+            total_slides += 1
             
             # 保存文件
             output_path = os.path.join(self.output_dir, f"{topic}_presentation.pptx")
             self.prs.save(output_path)
             
-            logger.info(f"PPT生成完成，保存至: {output_path}")
+            logger.info(f"PPT生成完成: 共 {total_slides} 张幻灯片, 保存至: {output_path}")
             return output_path
             
         except Exception as e:
@@ -102,7 +132,7 @@ class PPTGenerator:
                 p.space_before = Pt(6)  # 增加段落前间距
                 p.space_after = Pt(6)   # 增加段落后间距
 
-    def _add_content_slide(self, content: Dict[str, Any]) -> None:
+    def _add_content_slide(self, content: Dict[str, Any], topic: str, section_title: str) -> None:
         """添加内容幻灯片"""
         slide = self.prs.slides.add_slide(self.prs.slide_layouts[6])
         
@@ -120,15 +150,20 @@ class PPTGenerator:
         
         # 添加装饰线条（使用矩形作为线条）
         line = slide.shapes.add_shape(
-            MSO_SHAPE.RECTANGLE,  # 修改这里
+            MSO_SHAPE.RECTANGLE,
             Inches(1), Inches(1.3), Inches(14), Inches(0.03)
         )
         line.fill.solid()
         line.fill.fore_color.rgb = self.COLORS['primary']
         
-        content_type = content.get("type", "normal")
+        # 获取幻灯片内容
+        slide_title = content.get("title", "")
+        slide_type = content.get("type", "content")
         
-        if content_type == "two_column":
+        # 使用AI服务生成幻灯片内容
+        slide_content = self.ai_service.generate_slide_content(topic, section_title, slide_title, slide_type)
+        
+        if slide_type == "two_column":
             # 创建左右两栏，调整位置和大小
             left_content = slide.shapes.add_textbox(
                 Inches(1), Inches(1.5), Inches(6.5), Inches(6)
@@ -136,24 +171,29 @@ class PPTGenerator:
             right_content = slide.shapes.add_textbox(
                 Inches(8), Inches(1.5), Inches(6.5), Inches(6)
             )
-            self._add_points(left_content.text_frame, content.get("left_points", []))
-            self._add_points(right_content.text_frame, content.get("right_points", []))
+            self._add_points(left_content.text_frame, slide_content.get("left_points", []))
+            self._add_points(right_content.text_frame, slide_content.get("right_points", []))
             
         else:  # normal 或 image_content
             # 调整文本区域的位置和大小
             text_content = slide.shapes.add_textbox(
                 Inches(1), Inches(1.5), 
-                Inches(14 if content_type == "normal" else 8), 
+                Inches(14 if slide_type == "content" else 8), 
                 Inches(6.5)  # 增加高度
             )
-            self._add_points(text_content.text_frame, content.get("points", []))
+            self._add_points(text_content.text_frame, slide_content.get("points", []))
             
-            if content_type == "image_content" and (image_path := content.get("image_path")):
-                slide.shapes.add_picture(
-                    image_path,
-                    Inches(9.5), Inches(1.5),
-                    width=Inches(5.5)
-                )
+            if slide_type == "image_content":
+                # 在这里我们只添加图片描述，实际项目中可以根据描述生成或选择图片
+                image_desc = slide_content.get("image_description", "")
+                if image_desc:
+                    image_note = slide.shapes.add_textbox(
+                        Inches(9.5), Inches(3.5), Inches(5.5), Inches(1)
+                    )
+                    image_note.text_frame.text = f"[图片: {image_desc}]"
+                    p = image_note.text_frame.paragraphs[0]
+                    p.font.italic = True
+                    p.font.color.rgb = self.COLORS['secondary']
         
         # 添加注释
         if notes := content.get("notes"):

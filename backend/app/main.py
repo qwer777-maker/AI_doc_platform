@@ -2,34 +2,53 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 import os
+import logging
 
 from .api.routes import router as api_router
 from .core.config import settings
+
+# 配置日志
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
 
 app = FastAPI(title=settings.PROJECT_NAME)
 
 # 配置CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # 在生产环境中应该限制为前端域名
+    allow_origins=["*", "http://localhost:3000", "http://localhost:8080"],  # 明确包含前端域名
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["*"]
 )
 
 # 挂载API路由
 app.include_router(api_router, prefix=settings.API_V1_STR)
 
 # 创建下载和预览目录
-os.makedirs("generated_docs", exist_ok=True)
+docs_path = os.path.abspath("generated_docs")
+logger.info(f"文档生成路径: {docs_path}")
+os.makedirs(docs_path, exist_ok=True)
+
+# 确保目录具有正确的权限
+os.chmod(docs_path, 0o777)
 
 # 挂载静态文件服务
-app.mount("/downloads", StaticFiles(directory="generated_docs"), name="downloads")
-app.mount("/previews", StaticFiles(directory="generated_docs"), name="previews")
+app.mount("/downloads", StaticFiles(directory=docs_path), name="downloads")
+app.mount("/previews", StaticFiles(directory=docs_path), name="previews")
 
 @app.get("/")
 def read_root():
     return {"message": "Welcome to AI Doc Platform API"}
+
+@app.get("/api/health")
+def health_check():
+    """健康检查接口"""
+    return {"status": "healthy"}
 
 if __name__ == "__main__":
     import uvicorn

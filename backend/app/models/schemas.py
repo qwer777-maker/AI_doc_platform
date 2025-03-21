@@ -13,6 +13,7 @@ class DocumentRequest(BaseModel):
     doc_type: DocumentType = Field(..., description="文档类型")
     additional_info: Optional[str] = Field(None, description="额外的信息或要求")
     template_id: Optional[str] = Field(None, description="模板ID，如果使用预定义模板")
+    ai_service_type: Optional[str] = Field("deepseek", description="AI服务类型，如deepseek、openai等")
     
 class DocType(str, Enum):
     PPT = "ppt"

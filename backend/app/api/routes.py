@@ -11,12 +11,13 @@ import logging
 from fastapi.staticfiles import StaticFiles
 
 from ..models.schemas import DocumentRequest, DocumentResponse, GenerationStatus
-from ..services.deepseek_service import DeepSeekService
+from ..services.ai_service_factory import AIServiceFactory
 from ..services.ppt_generator import PPTGenerator
 from ..services.word_generator import WordGenerator
+from ..services.pdf_generator import PDFGenerator
 
 router = APIRouter()
-deepseek_service = DeepSeekService()
+ai_service = AIServiceFactory.get_default_service()
 
 # 存储生成任务的状态
 generation_tasks = {}
@@ -67,7 +68,8 @@ async def create_document(
         request.topic, 
         request.doc_type,
         request.additional_info,
-        request.template_id
+        request.template_id,
+        request.ai_service_type
     )
     
     return response
@@ -187,8 +189,12 @@ async def download_file(file_name: str):
     """
     下载生成的文件
     """
-    file_path = os.path.join("generated_docs", file_name)
+    # 使用绝对路径
+    file_path = os.path.abspath(os.path.join("generated_docs", file_name))
+    logger.info(f"尝试下载文件: {file_path}")
+    
     if not os.path.exists(file_path):
+        logger.error(f"文件不存在: {file_path}")
         raise HTTPException(status_code=404, detail="文件不存在")
     
     return FileResponse(
@@ -202,14 +208,20 @@ async def preview_file(file_name: str):
     """
     预览生成的文件
     """
-    file_path = os.path.join("generated_docs", file_name)
+    # 使用绝对路径
+    file_path = os.path.abspath(os.path.join("generated_docs", file_name))
+    logger.info(f"尝试预览文件: {file_path}")
+    
     if not os.path.exists(file_path):
+        logger.error(f"文件不存在: {file_path}")
         raise HTTPException(status_code=404, detail="文件不存在")
     
     # 根据文件类型设置适当的媒体类型
     media_type = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
     if file_name.endswith(".docx"):
         media_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    elif file_name.endswith(".pdf"):
+        media_type = "application/pdf"
     
     return FileResponse(
         path=file_path,
@@ -221,10 +233,19 @@ async def generate_document_background(
     topic: str, 
     doc_type: str,
     additional_info: str = None,
-    template_id: str = None
+    template_id: str = None,
+    ai_service_type: str = "deepseek"  # 添加AI服务类型参数
 ):
     """
     后台文档生成任务，提供更细粒度的进度更新
+    
+    Args:
+        doc_id: 文档ID
+        topic: 文档主题
+        doc_type: 文档类型
+        additional_info: 额外信息
+        template_id: 模板ID
+        ai_service_type: AI服务类型，默认为"deepseek"
     """
     try:
         # 初始状态
@@ -237,11 +258,22 @@ async def generate_document_background(
             "created_at": datetime.now().isoformat()
         })
         
+        logger.info(f"开始生成文档: ID={doc_id}, 主题='{topic}', 类型={doc_type}, AI服务={ai_service_type}")
+        if additional_info:
+            logger.info(f"附加信息: {additional_info}")
+        if template_id:
+            logger.info(f"使用模板: {template_id}")
+        
+        # 获取指定的AI服务
+        service = AIServiceFactory.create_service(ai_service_type)
+        logger.info(f"成功创建AI服务: {ai_service_type}")
+        
         # 步骤1: 分析主题
         generation_tasks[doc_id].update({
             "progress": 0.1,
             "message": "正在分析主题..."
         })
+        logger.info(f"[文档 {doc_id}] 步骤1: 分析主题 '{topic}'")
         await asyncio.sleep(1)  # 给前端一些时间更新UI
         
         # 步骤2: 生成文档大纲
@@ -249,14 +281,29 @@ async def generate_document_background(
             "progress": 0.2,
             "message": "正在生成文档大纲..."
         })
+        logger.info(f"[文档 {doc_id}] 步骤2: 开始生成文档大纲")
         
         # 使用 try-except 块包装大纲生成
         try:
-            outline = deepseek_service.generate_document_outline(topic, doc_type)
+            outline = service.generate_document_outline(topic, doc_type)
             if not outline:
                 raise ValueError("生成大纲失败")
+                
+            # 记录大纲信息
+            logger.info(f"[文档 {doc_id}] 成功生成大纲: {len(outline)} 个章节")
+            for i, section in enumerate(outline):
+                section_title = section.get("title", "未知章节")
+                if doc_type == "ppt" and "slides" in section:
+                    slides_count = len(section.get("slides", []))
+                    logger.info(f"  章节 {i+1}: {section_title} ({slides_count} 张幻灯片)")
+                elif "subsections" in section:
+                    subsections_count = len(section.get("subsections", []))
+                    logger.info(f"  章节 {i+1}: {section_title} ({subsections_count} 个子章节)")
+                else:
+                    logger.info(f"  章节 {i+1}: {section_title}")
+                
         except Exception as e:
-            logger.error(f"生成大纲时出错: {str(e)}")
+            logger.error(f"[文档 {doc_id}] 生成大纲时出错: {str(e)}")
             generation_tasks[doc_id].update({
                 "status": "failed",
                 "message": "无法生成文档大纲，请检查主题是否合适或稍后重试"
@@ -268,6 +315,7 @@ async def generate_document_background(
             "progress": 0.4,
             "message": "大纲已生成，正在准备内容..."
         })
+        logger.info(f"[文档 {doc_id}] 步骤3: 准备内容")
         await asyncio.sleep(1)  # 给前端一些时间更新UI
         
         # 步骤4: 创建文档
@@ -275,23 +323,32 @@ async def generate_document_background(
             "progress": 0.6,
             "message": "正在创建文档..."
         })
+        logger.info(f"[文档 {doc_id}] 步骤4: 开始创建文档")
         
         # 根据文档类型选择生成器
         file_path = None
         try:
             if doc_type == "ppt":
-                generator = PPTGenerator()
+                logger.info(f"[文档 {doc_id}] 使用PPT生成器")
+                generator = PPTGenerator(ai_service_type=ai_service_type)
                 file_path = generator.generate(topic, outline, template_id)
             elif doc_type == "word":
-                generator = WordGenerator()
+                logger.info(f"[文档 {doc_id}] 使用Word生成器")
+                generator = WordGenerator(ai_service_type=ai_service_type)
+                file_path = generator.generate(topic, outline, template_id)
+            elif doc_type == "pdf":
+                logger.info(f"[文档 {doc_id}] 使用PDF生成器")
+                generator = PDFGenerator(ai_service_type=ai_service_type)
                 file_path = generator.generate(topic, outline, template_id)
             else:
                 raise ValueError(f"不支持的文档类型: {doc_type}")
             
             if not file_path:
                 raise ValueError("文档生成失败")
+                
+            logger.info(f"[文档 {doc_id}] 文档生成成功: {file_path}")
         except Exception as e:
-            logger.error(f"创建文档时出错: {str(e)}")
+            logger.error(f"[文档 {doc_id}] 创建文档时出错: {str(e)}")
             generation_tasks[doc_id].update({
                 "status": "failed",
                 "message": f"文档生成失败: {str(e)}"
@@ -303,6 +360,7 @@ async def generate_document_background(
             "progress": 0.8,
             "message": "正在完成格式化..."
         })
+        logger.info(f"[文档 {doc_id}] 步骤5: 完成格式化")
         await asyncio.sleep(1)  # 给前端一些时间更新UI
         
         # 文件生成成功，更新下载链接
@@ -319,8 +377,12 @@ async def generate_document_background(
             "preview_url": preview_url
         })
         
+        logger.info(f"[文档 {doc_id}] 文档生成任务完成")
+        logger.info(f"[文档 {doc_id}] 下载链接: {download_url}")
+        logger.info(f"[文档 {doc_id}] 预览链接: {preview_url}")
+        
     except Exception as e:
-        logger.error(f"文档生成过程中出错: {str(e)}")
+        logger.error(f"[文档 {doc_id}] 文档生成过程中出错: {str(e)}")
         generation_tasks[doc_id].update({
             "status": "failed",
             "message": f"生成过程中出错: {str(e)}"
