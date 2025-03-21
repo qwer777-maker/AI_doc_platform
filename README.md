@@ -45,23 +45,6 @@
 - Python-pptx (PPT 生成)
 - DeepSeek API (AI 内容生成)
 
-## 安装与运行
-
-### 前端
-
-```bash
-cd frontend
-npm install
-npm run serve
-```
-
-### 后端
-
-```bash
-cd backend
-pip install -r requirements.txt
-uvicorn app.main:app --reload --port 8001
-```
 
 ## 环境变量
 
@@ -72,11 +55,14 @@ AI_API_KEY=your_deepseek_api_key
 AI_API_ENDPOINT=https://api.deepseek.com/v1/chat/completions
 ```
 
-## 使用 Docker
+## 安裝与运行
 
 ```bash
-docker-compose up -d
+docker pull ubuntu:20.04
+docker compose build
+docker compose up -d
 ```
+浏览器登陆: localhost:3000
 
 ## 使用流程
 
@@ -91,6 +77,8 @@ docker-compose up -d
 
 ## 更新日志
 
+### 2025-03-31
+- 更新了安装和运行改为docker部署, 对代码进行重构
 ### 2025-03-07
 - 这周比较忙，继续更新项目，让AI能够生成更好的ppt内容，目前只使用了deepseek的api。
 
