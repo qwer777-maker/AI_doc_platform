@@ -46,6 +46,11 @@ export default {
     return apiClient.post('/documents/', documentData);
   },
   
+  // 创建高级文档
+  createAdvancedDocument(documentData) {
+    return apiClient.post('/advanced-documents/', documentData);
+  },
+  
   // 获取文档状态
   getDocumentStatus(documentId) {
     return apiClient.get(`/documents/${documentId}/status`);

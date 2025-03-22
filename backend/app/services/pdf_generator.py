@@ -20,8 +20,8 @@ class PDFGenerator:
     生成PDF文档
     """
     def __init__(self, ai_service_type: str = "deepseek"):
-        # 使用绝对路径
-        self.output_dir = os.path.abspath("generated_docs")
+        # 修正路径：生成文档目录和app是同级的
+        self.output_dir = os.path.abspath(os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "generated_docs"))
         logger.info(f"PDF生成器输出目录: {self.output_dir}")
         os.makedirs(self.output_dir, exist_ok=True)
         

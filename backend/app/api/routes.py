@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
-from typing import List
+from typing import List, Optional
 import uuid
 from datetime import datetime
 import os
@@ -10,11 +10,15 @@ import json
 import logging
 from fastapi.staticfiles import StaticFiles
 
-from ..models.schemas import DocumentRequest, DocumentResponse, GenerationStatus
+from ..models.schemas import (
+    DocumentRequest, DocumentResponse, GenerationStatus, 
+    AdvancedDocumentRequest, PageChapterContent
+)
 from ..services.ai_service_factory import AIServiceFactory
 from ..services.ppt_generator import PPTGenerator
 from ..services.word_generator import WordGenerator
 from ..services.pdf_generator import PDFGenerator
+from ..services.advanced_content_generator import AdvancedContentGenerator
 
 router = APIRouter()
 ai_service = AIServiceFactory.get_default_service()
@@ -189,8 +193,8 @@ async def download_file(file_name: str):
     """
     下载生成的文件
     """
-    # 使用绝对路径
-    file_path = os.path.abspath(os.path.join("generated_docs", file_name))
+    # 修正路径：生成文档目录和app是同级的
+    file_path = os.path.abspath(os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "generated_docs", file_name))
     logger.info(f"尝试下载文件: {file_path}")
     
     if not os.path.exists(file_path):
@@ -208,8 +212,8 @@ async def preview_file(file_name: str):
     """
     预览生成的文件
     """
-    # 使用绝对路径
-    file_path = os.path.abspath(os.path.join("generated_docs", file_name))
+    # 修正路径：生成文档目录和app是同级的
+    file_path = os.path.abspath(os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "generated_docs", file_name))
     logger.info(f"尝试预览文件: {file_path}")
     
     if not os.path.exists(file_path):
@@ -227,6 +231,52 @@ async def preview_file(file_name: str):
         path=file_path,
         media_type=media_type
     )
+
+@router.post("/advanced-documents/", response_model=DocumentResponse)
+async def create_advanced_document(
+    request: AdvancedDocumentRequest, 
+    background_tasks: BackgroundTasks
+):
+    """
+    创建新的高级文档生成任务，支持页面/章节限制和自定义内容
+    """
+    # 确保 doc_type 是有效值
+    if request.doc_type not in ["ppt", "word", "pdf"]:
+        raise HTTPException(status_code=400, detail="Invalid document type")
+    
+    # 生成唯一ID
+    doc_id = str(uuid.uuid4())
+    
+    # 创建初始响应
+    response = DocumentResponse(
+        id=doc_id,
+        topic=request.topic,
+        doc_type=request.doc_type,
+        status="queued",
+        created_at=datetime.now().isoformat()
+    )
+    
+    # 存储任务状态
+    generation_tasks[doc_id] = {
+        "status": "queued",
+        "progress": 0.0,
+        "message": "高级任务已加入队列"
+    }
+    
+    # 添加后台任务
+    background_tasks.add_task(
+        generate_advanced_document_background, 
+        doc_id, 
+        request.topic, 
+        request.doc_type,
+        request.additional_info,
+        request.template_id,
+        request.ai_service_type,
+        request.max_pages,
+        request.detailed_content
+    )
+    
+    return response
 
 async def generate_document_background(
     doc_id: str, 
@@ -387,3 +437,113 @@ async def generate_document_background(
             "status": "failed",
             "message": f"生成过程中出错: {str(e)}"
         }) 
+
+async def generate_advanced_document_background(
+    doc_id: str,
+    topic: str,
+    doc_type: str,
+    additional_info: Optional[str] = None,
+    template_id: Optional[str] = None,
+    ai_service_type: str = "deepseek",
+    max_pages: Optional[int] = None,
+    detailed_content: Optional[List[PageChapterContent]] = None
+):
+    """
+    后台处理高级文档生成任务
+    """
+    try:
+        # 更新状态为处理中，并保存主题和文档类型信息
+        generation_tasks[doc_id].update({
+            "status": "processing",
+            "progress": 0.05,
+            "message": "开始高级文档生成...",
+            "topic": topic,  # 添加主题信息
+            "doc_type": doc_type,  # 添加文档类型信息
+            "created_at": datetime.now().isoformat()  # 添加创建时间
+        })
+
+        logger.info(f"开始高级文档生成: ID={doc_id}, 主题='{topic}', 类型={doc_type}")
+        
+        # 根据文档类型选择生成器
+        advanced_content_generator = AdvancedContentGenerator(ai_service_type)
+        
+        # 创建进度回调函数
+        def update_progress(progress: float, message: str):
+            generation_tasks[doc_id]["progress"] = progress
+            generation_tasks[doc_id]["message"] = message
+            logger.info(f"任务 {doc_id} 进度: {progress:.2f} - {message}")
+        
+        try:
+            # 使用高级内容生成器生成内容
+            document_content = await advanced_content_generator.generate_with_constraints(
+                topic,
+                doc_type,
+                additional_info,
+                max_pages,
+                detailed_content,
+                update_progress
+            )
+        except Exception as content_error:
+            # 内容生成失败时，尝试使用默认生成
+            logger.error(f"高级内容生成失败，切换到基础生成: {str(content_error)}")
+            update_progress(0.4, "高级内容生成失败，切换到基础生成...")
+            
+            # 使用基础生成方式
+            service = AIServiceFactory.create_service(ai_service_type)
+            outline = service.generate_document_outline(topic, doc_type)
+            document_content = {"title": topic, "sections": outline or []}
+        
+        # 根据文档类型生成最终文档
+        update_progress(0.8, "生成最终文档文件...")
+        
+        try:
+            if doc_type == "ppt":
+                # 生成PPT
+                ppt_generator = PPTGenerator(ai_service_type)
+                output_path = ppt_generator.generate(topic, document_content.get("sections", []), template_id)
+                file_type = "pptx"
+            elif doc_type == "word":
+                # 生成Word文档
+                word_generator = WordGenerator(ai_service_type)
+                output_path = word_generator.generate(topic, document_content.get("sections", []), template_id)
+                file_type = "docx"
+            elif doc_type == "pdf":
+                # 生成PDF文档
+                pdf_generator = PDFGenerator(ai_service_type)
+                output_path = pdf_generator.generate(topic, document_content.get("sections", []), template_id)
+                file_type = "pdf"
+            else:
+                raise ValueError(f"不支持的文档类型: {doc_type}")
+                
+            if not output_path:
+                raise ValueError("文档生成失败，请检查内容或重试")
+                
+            # 生成下载和预览URL
+            base_name = f"{topic}_{'presentation' if doc_type == 'ppt' else 'document'}.{file_type}"
+            base_url = "http://localhost:8001"  # 应该从配置中获取
+            download_url = f"{base_url}/downloads/{base_name}"
+            preview_url = f"{base_url}/previews/{base_name}"
+            
+            # 更新任务状态为完成
+            generation_tasks[doc_id].update({
+                "status": "completed",
+                "progress": 1.0,
+                "message": "文档生成完成",
+                "download_url": download_url,
+                "preview_url": preview_url
+            })
+            
+            logger.info(f"高级文档生成完成: ID={doc_id}, 文件={base_name}")
+            
+        except Exception as doc_error:
+            # 文档生成过程中出错
+            logger.error(f"生成文档文件时出错: {str(doc_error)}")
+            generation_tasks[doc_id]["status"] = "failed"
+            generation_tasks[doc_id]["message"] = f"生成文档失败: {str(doc_error)}"
+            return
+        
+    except Exception as e:
+        # 如果发生错误，更新状态为失败
+        logger.error(f"高级文档生成错误: {str(e)}")
+        generation_tasks[doc_id]["status"] = "failed"
+        generation_tasks[doc_id]["message"] = f"生成失败: {str(e)}" 

@@ -18,8 +18,8 @@ logger = logging.getLogger(__name__)
 class PPTGenerator:
     def __init__(self, ai_service_type: str = "deepseek"):
         self.templates_dir = os.path.join(os.path.dirname(__file__), "../templates/ppt_templates")
-        # 使用绝对路径
-        self.output_dir = os.path.abspath("generated_docs")
+        # 修正路径：生成文档目录和app是同级的
+        self.output_dir = os.path.abspath(os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "generated_docs"))
         logger.info(f"PPT生成器输出目录: {self.output_dir}")
         os.makedirs(self.output_dir, exist_ok=True)
         
@@ -109,31 +109,52 @@ class PPTGenerator:
             self.prs = None
 
     def _add_points(self, text_frame: TextFrame, points: List[Dict[str, Any]]) -> None:
-        """添加要点和详细说明"""
-        for point in points:
+        """添加要点和详细说明，自动调整字体大小和布局"""
+        # 要点数量的阈值，超过此数量则减小字体大小
+        points_threshold = 3
+        details_threshold = 2
+        
+        # 根据要点数量调整字体大小
+        main_point_size = Pt(28)
+        detail_point_size = Pt(20)
+        
+        if len(points) > points_threshold:
+            # 要点较多，减小字体
+            main_point_size = Pt(24)
+            detail_point_size = Pt(18)
+            
+        for i, point in enumerate(points):
             # 添加主要要点
             p = text_frame.add_paragraph()
             p.text = "▪ " + point.get("main", "")  # 添加项目符号
             p.level = 0
             p.font.name = '微软雅黑'
-            p.font.size = Pt(28)
+            p.font.size = main_point_size
             p.font.bold = True
             p.font.color.rgb = self.COLORS['primary']
-            p.space_after = Pt(12)  # 增加段落间距
+            p.space_after = Pt(8) if len(points) > points_threshold else Pt(12)  # 根据内容量调整间距
+            
+            # 获取详细说明
+            details = point.get("details", [])
+            
+            # 如果详细说明太多，减小字体大小和间距
+            detail_font_size = detail_point_size
+            if len(details) > details_threshold:
+                detail_font_size = Pt(16)
             
             # 添加详细说明
-            for detail in point.get("details", []):
+            for detail in details:
                 p = text_frame.add_paragraph()
                 p.text = "• " + detail
                 p.level = 1
                 p.font.name = '微软雅黑'
-                p.font.size = Pt(20)
+                p.font.size = detail_font_size
                 p.font.color.rgb = self.COLORS['secondary']
-                p.space_before = Pt(6)  # 增加段落前间距
-                p.space_after = Pt(6)   # 增加段落后间距
+                p.space_before = Pt(4) if len(details) > details_threshold else Pt(6)  # 根据内容量调整间距
+                p.space_after = Pt(4) if len(details) > details_threshold else Pt(6)   # 根据内容量调整间距
 
     def _add_content_slide(self, content: Dict[str, Any], topic: str, section_title: str) -> None:
-        """添加内容幻灯片"""
+        """添加内容幻灯片，根据内容量自动调整布局"""
         slide = self.prs.slides.add_slide(self.prs.slide_layouts[6])
         
         # 添加标题和装饰线条
@@ -163,25 +184,47 @@ class PPTGenerator:
         # 使用AI服务生成幻灯片内容
         slide_content = self.ai_service.generate_slide_content(topic, section_title, slide_title, slide_type)
         
-        if slide_type == "two_column":
-            # 创建左右两栏，调整位置和大小
-            left_content = slide.shapes.add_textbox(
-                Inches(1), Inches(1.5), Inches(6.5), Inches(6)
-            )
-            right_content = slide.shapes.add_textbox(
-                Inches(8), Inches(1.5), Inches(6.5), Inches(6)
-            )
-            self._add_points(left_content.text_frame, slide_content.get("left_points", []))
-            self._add_points(right_content.text_frame, slide_content.get("right_points", []))
-            
-        else:  # normal 或 image_content
-            # 调整文本区域的位置和大小
+        # 获取要点数量，判断是否需要双列布局
+        points = slide_content.get("points", [])
+        total_points = len(points)
+        total_details = sum(len(point.get("details", [])) for point in points)
+        
+        # 自动判断布局方式
+        use_two_column = total_points > 3 or total_details > 6
+        
+        if slide_type == "two_column" or use_two_column:
+            # 如果指定双列或内容较多，使用两栏布局
+            if slide_type == "two_column" and "left_points" in slide_content and "right_points" in slide_content:
+                # 使用预定义的左右栏内容
+                left_content = slide.shapes.add_textbox(
+                    Inches(1), Inches(1.5), Inches(6.5), Inches(6)
+                )
+                right_content = slide.shapes.add_textbox(
+                    Inches(8), Inches(1.5), Inches(6.5), Inches(6)
+                )
+                self._add_points(left_content.text_frame, slide_content.get("left_points", []))
+                self._add_points(right_content.text_frame, slide_content.get("right_points", []))
+            else:
+                # 自动将内容分为左右两栏
+                left_points = points[:len(points)//2 + len(points)%2]  # 左侧放置一半+余数
+                right_points = points[len(points)//2 + len(points)%2:]  # 右侧放置剩余部分
+                
+                left_content = slide.shapes.add_textbox(
+                    Inches(1), Inches(1.5), Inches(6.5), Inches(6)
+                )
+                right_content = slide.shapes.add_textbox(
+                    Inches(8), Inches(1.5), Inches(6.5), Inches(6)
+                )
+                self._add_points(left_content.text_frame, left_points)
+                self._add_points(right_content.text_frame, right_points)
+        else:
+            # 普通单列布局
             text_content = slide.shapes.add_textbox(
                 Inches(1), Inches(1.5), 
                 Inches(14 if slide_type == "content" else 8), 
                 Inches(6.5)  # 增加高度
             )
-            self._add_points(text_content.text_frame, slide_content.get("points", []))
+            self._add_points(text_content.text_frame, points)
             
             if slide_type == "image_content":
                 # 在这里我们只添加图片描述，实际项目中可以根据描述生成或选择图片

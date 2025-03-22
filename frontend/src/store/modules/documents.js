@@ -55,6 +55,16 @@ export default {
       }
     },
     
+    async createAdvancedDocument({ commit }, documentData) {
+      try {
+        const response = await api.createAdvancedDocument(documentData)
+        return response.data
+      } catch (error) {
+        console.error(error)
+        throw error
+      }
+    },
+    
     async getDocument({ commit }, documentId) {
       try {
         const response = await api.getDocument(documentId)

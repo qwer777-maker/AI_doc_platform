@@ -20,7 +20,7 @@ class WordGenerator:
     """
     def __init__(self, ai_service_type: str = "deepseek"):
         self.templates_dir = os.path.join(os.path.dirname(__file__), "../templates/word_templates")
-        self.output_dir = os.path.abspath("generated_docs")
+        self.output_dir = os.path.abspath(os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "generated_docs"))
         logger.info(f"Word生成器输出目录: {self.output_dir}")
         os.makedirs(self.output_dir, exist_ok=True)
         

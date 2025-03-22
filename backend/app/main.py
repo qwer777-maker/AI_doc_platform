@@ -30,7 +30,7 @@ app.add_middleware(
 app.include_router(api_router, prefix=settings.API_V1_STR)
 
 # 创建下载和预览目录
-docs_path = os.path.abspath("generated_docs")
+docs_path = os.path.abspath(os.path.join(os.path.dirname(os.path.dirname(__file__)), "generated_docs"))
 logger.info(f"文档生成路径: {docs_path}")
 os.makedirs(docs_path, exist_ok=True)
 

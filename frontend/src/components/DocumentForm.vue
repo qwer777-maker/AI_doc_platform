@@ -45,6 +45,10 @@
       <button type="submit" :disabled="submitting">
         {{ submitting ? '生成中...' : '生成文档' }}
       </button>
+      
+      <div class="advanced-link">
+        需要更精确控制? <a href="#" @click.prevent="$emit('switch-mode')">切换到高级模式</a>
+      </div>
     </form>
   </div>
 </template>
@@ -145,5 +149,21 @@ button {
 button:disabled {
   background-color: #cccccc;
   cursor: not-allowed;
+}
+
+.advanced-link {
+  margin-top: 20px;
+  text-align: center;
+  font-size: 14px;
+  color: #666;
+}
+
+.advanced-link a {
+  color: #4CAF50;
+  text-decoration: none;
+}
+
+.advanced-link a:hover {
+  text-decoration: underline;
 }
 </style> 

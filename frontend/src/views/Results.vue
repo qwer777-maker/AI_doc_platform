@@ -49,8 +49,8 @@
         <p class="status success">生成完成</p>
         
         <div class="document-actions">
-          <a :href="document.download_url" class="btn download" download>下载文档</a>
-          <a :href="document.preview_url" class="btn preview" target="_blank">预览文档</a>
+          <a :href="getCorrectUrl(document.download_url)" class="btn download" download>下载文档</a>
+          <a :href="getCorrectUrl(document.preview_url)" class="btn preview" target="_blank">预览文档</a>
         </div>
         
         <router-link to="/generate" class="btn secondary">创建新文档</router-link>
@@ -163,6 +163,11 @@ export default {
           this.progressMessage = data.message;
         }
         
+        // 更新主题（如果存在）
+        if (data.topic && (!this.document.topic || this.document.topic === '未知')) {
+          this.document.topic = data.topic;
+        }
+        
         // 更新文档状态
         if (data.status && data.status !== this.document.status) {
           this.document.status = data.status;
@@ -176,6 +181,9 @@ export default {
             if (data.preview_url) {
               this.document.preview_url = data.preview_url;
             }
+            
+            // 更新localStorage
+            localStorage.setItem('currentDocument', JSON.stringify(this.document));
             
             this.eventSource.close();
           }
@@ -223,6 +231,24 @@ export default {
         'failed': '失败'
       };
       return statusMap[status] || status;
+    },
+    
+    getCorrectUrl(url) {
+      if (!url) return '#';
+      
+      // 检查URL是否是以http开头的完整URL
+      if (url.startsWith('http')) {
+        return url;
+      }
+      
+      // 如果是相对路径，则添加API基础URL
+      const baseUrl = process.env.VUE_APP_API_URL || 'http://localhost:8001';
+      if (url.startsWith('/')) {
+        return `${baseUrl}${url}`;
+      }
+      
+      // 其他情况，直接添加到baseUrl
+      return `${baseUrl}/${url}`;
     }
   }
 };
