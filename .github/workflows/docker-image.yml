@@ -45,9 +45,9 @@ jobs:
 
           file_name="${image_name}.tar"
           git clone https://github.com/qwer777-maker/AI_doc_platform
-          cd AI_doc_platform
+          cd AI_doc_platform/backend
           docker build -t ${image_name} .
-          cd ..
+          cd ../..
           docker save "${image}" -o "${file_name}"
         done
 
